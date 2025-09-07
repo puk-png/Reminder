@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import calendar
 import os
 
-API_TOKEN = "YOUR_BOT_TOKEN_HERE"
+API_TOKEN = "8046378279:AAEjTOBDflR7gQufceQWgwTsr-gWzD1_Xxk"
 
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
