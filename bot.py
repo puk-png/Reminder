@@ -563,4 +563,29 @@ async def show_photos(message: types.Message):
         await bot.send_photo(message.chat.id, photo[2], caption=caption)
 
 # --- Скасування операцій ---
-@dp.ca
+@dp.callback_query_handler(lambda c: c.data == 'cancel', state='*')
+async def cancel_operation(callback_query: types.CallbackQuery, state: FSMContext):
+    await state.finish()
+    await callback_query.message.edit_text("❌ Операцію скасовано.")
+    await callback_query.answer()
+
+# Обробка невідомих повідомлень
+@dp.message_handler(state='*')
+async def unknown_message(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state is None:
+        await message.reply(
+            "🤔 Я не розумію цю команду.\n"
+            "Використовуйте кнопки меню або /help для допомоги.",
+            reply_markup=get_main_keyboard()
+        )
+
+# Запуск бота
+async def on_startup(dp):
+    print("🤖 Бот запущено!")
+    init_db()
+    scheduler.start()
+    load_all_reminders()
+
+if __name__ == "__main__":
+    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
