@@ -11,14 +11,18 @@ import asyncio
 from datetime import datetime, timedelta
 import calendar
 import os
+import logging
 
-API_TOKEN = "8046378279:AAEjTOBDflR7gQufceQWgwTsr-gWzD1_Xxk"
+# Налаштування логування
+logging.basicConfig(level=logging.INFO)
+
+# ВАЖЛИВО: Замініть на ваш справжній токен!
+API_TOKEN = "ВАШ_СПРАВЖНІЙ_ТОКЕН_ТУТУТ"
 
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 scheduler = AsyncIOScheduler()
-scheduler.start()
 
 # --- Стани для FSM ---
 class ReminderStates(StatesGroup):
@@ -32,36 +36,38 @@ class ReminderStates(StatesGroup):
 
 # --- База даних ---
 def init_db():
-    conn = sqlite3.connect("reminders.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS reminders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        chat_id INTEGER,
-        text TEXT,
-        hour INTEGER,
-        minute INTEGER,
-        days TEXT,
-        one_time INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        is_active INTEGER DEFAULT 1
-    )
-    """)
-    
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS schedule_photos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        chat_id INTEGER,
-        photo_file_id TEXT,
-        schedule_type TEXT,  -- 'day', 'week', 'month'
-        description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
-    conn.commit()
-    conn.close()
-
-init_db()
+    try:
+        conn = sqlite3.connect("reminders.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER,
+            text TEXT,
+            hour INTEGER,
+            minute INTEGER,
+            days TEXT,
+            one_time INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            is_active INTEGER DEFAULT 1
+        )
+        """)
+        
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS schedule_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER,
+            photo_file_id TEXT,
+            schedule_type TEXT,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """)
+        conn.commit()
+        conn.close()
+        print("✅ База даних ініціалізована")
+    except Exception as e:
+        print(f"❌ Помилка ініціалізації БД: {e}")
 
 # --- Допоміжні функції ---
 def get_db_connection():
@@ -95,8 +101,9 @@ def schedule_reminder(reminder):
                 id=f"reminder_{reminder_id}",
                 replace_existing=True
             )
+        print(f"✅ Нагадування {reminder_id} заплановано")
     except Exception as e:
-        print(f"Помилка планування нагадування {reminder_id}: {e}")
+        print(f"❌ Помилка планування нагадування {reminder_id}: {e}")
 
 async def send_reminder(chat_id, text, reminder_id):
     try:
@@ -112,16 +119,23 @@ async def send_reminder(chat_id, text, reminder_id):
             cursor.execute("DELETE FROM reminders WHERE id=?", (reminder_id,))
             conn.commit()
         conn.close()
+        print(f"✅ Нагадування {reminder_id} відправлено")
     except Exception as e:
-        print(f"Помилка надсилання нагадування: {e}")
+        print(f"❌ Помилка надсилання нагадування: {e}")
 
 def load_all_reminders():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM reminders WHERE is_active=1")
-    for rem in cursor.fetchall():
-        schedule_reminder(rem)
-    conn.close()
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM reminders WHERE is_active=1")
+        reminders = cursor.fetchall()
+        conn.close()
+        
+        for rem in reminders:
+            schedule_reminder(rem)
+        print(f"✅ Завантажено {len(reminders)} нагадувань")
+    except Exception as e:
+        print(f"❌ Помилка завантаження нагадувань: {e}")
 
 def get_days_emoji(days_str):
     days_map = {
@@ -227,9 +241,8 @@ async def help_command(message: types.Message):
 @dp.message_handler(text="➕ Додати")
 @dp.message_handler(commands=['add'])
 async def add_reminder_start(message: types.Message, state: FSMContext):
-    # Перевіряємо чи є аргументи в команді
-    args = message.get_args() if hasattr(message, 'get_args') else None
-    if args or len(message.text.split()) > 1:
+    # Виправлення проблеми з get_args()
+    if message.text.startswith('/add ') and len(message.text.split()) > 1:
         await add_reminder_quick(message)
         return
     
@@ -246,6 +259,10 @@ async def add_reminder_quick(message: types.Message):
         
         _, time_str, text, days_text = parts
         hour, minute = map(int, time_str.split(":"))
+        
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            await message.reply("❌ Неправильний час. Використовуйте формат ГГ:ХХ")
+            return
         
         days_map = {
             "Будні": "mon,tue,wed,thu,fri",
@@ -360,10 +377,13 @@ async def list_reminders(message: types.Message):
 @dp.message_handler(commands=['edit'])
 async def edit_reminder_start(message: types.Message):
     try:
-        reminder_id = message.get_args()
-        if not reminder_id:
+        # Виправлення для отримання аргументів
+        args_text = message.text.replace('/edit', '').strip()
+        if not args_text:
             await message.reply("❌ Вкажіть ID нагадування: /edit 123")
             return
+        
+        reminder_id = args_text
         
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -397,10 +417,12 @@ async def edit_reminder_start(message: types.Message):
 @dp.message_handler(commands=['delete'])
 async def delete_reminder(message: types.Message):
     try:
-        reminder_id = message.get_args()
-        if not reminder_id:
+        args_text = message.text.replace('/delete', '').strip()
+        if not args_text:
             await message.reply("❌ Вкажіть ID нагадування: /delete 123")
             return
+        
+        reminder_id = args_text
         
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -520,7 +542,7 @@ async def process_photo(message: types.Message):
 async def save_photo(callback_query: types.CallbackQuery):
     parts = callback_query.data.split('_')
     schedule_type = parts[2]
-    file_id = parts[3]
+    file_id = '_'.join(parts[3:])  # Виправлення для file_id з підкресленнями
     
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -560,7 +582,10 @@ async def show_photos(message: types.Message):
     
     for photo in photos:
         caption = f"📅 {photo[4]} (ID: {photo[0]})\n📆 {photo[6]}"
-        await bot.send_photo(message.chat.id, photo[2], caption=caption)
+        try:
+            await bot.send_photo(message.chat.id, photo[2], caption=caption)
+        except Exception as e:
+            await message.reply(f"❌ Помилка відправки фото ID {photo[0]}: {str(e)}")
 
 # --- Скасування операцій ---
 @dp.callback_query_handler(lambda c: c.data == 'cancel', state='*')
@@ -582,10 +607,22 @@ async def unknown_message(message: types.Message, state: FSMContext):
 
 # Запуск бота
 async def on_startup(dp):
-    print("🤖 Бот запущено!")
-    init_db()
-    scheduler.start()
-    load_all_reminders()
+    print("🤖 Бот запускається...")
+    try:
+        init_db()
+        scheduler.start()
+        load_all_reminders()
+        print("✅ Бот успішно запущено!")
+    except Exception as e:
+        print(f"❌ Помилка запуску: {e}")
+
+async def on_shutdown(dp):
+    print("🔄 Зупинка бота...")
+    scheduler.shutdown()
+    print("✅ Бот зупинено")
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    try:
+        executor.start_polling(dp, skip_updates=True, on_startup=on_startup, on_shutdown=on_shutdown)
+    except Exception as e:
+        print(f"❌ Критична помилка: {e}")
