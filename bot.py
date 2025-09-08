@@ -17,7 +17,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 # ВАЖЛИВО: Замініть на ваш справжній токен!
-API_TOKEN = "ВАШ_СПРАВЖНІЙ_ТОКЕН_ТУТУТ"
+API_TOKEN = "8046378279:AAEjTOBDflR7gQufceQWgwTsr-gWzD1_Xxk"
 
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
